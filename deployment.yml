@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-app
+  namespace: web-app
+  labels:
+    app: web-app
+spec:
+  # Минимальное количество реплик для отказоустойчивости (по одной в каждой зоне)
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Обеспечиваем плавное обновление без простоев
+      maxSurge: 1
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: web-app
+  template:
+    metadata:
+      labels:
+        app: web-app
+      annotations:
+        # Для мониторинга Prometheus
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      # Распределение по зонам для максимальной отказоустойчивости
+      affinity:
+        podAntiAffinity:
+          # Желательно не размещать поды на одной ноде
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - web-app
+              topologyKey: kubernetes.io/hostname
+          # Обязательно размещать в разных зонах
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - web-app
+            topologyKey: topology.kubernetes.io/zone
+      
+      # Настройки для graceful shutdown
+      terminationGracePeriodSeconds: 30
+      
+      containers:
+      - name: web-app
+        image: your-registry/web-app:latest # Замените на ваш образ
+        ports:
+        - containerPort: 8080
+          name: http
+        
+        # Ресурсы с учетом burst CPU на старте и стабильного потребления
+        resources:
+          requests:
+            # Минимум для стабильной работы
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            # Максимум с запасом для первых запросов
+            cpu: "500m"
+            memory: "256Mi"
+        
+        # Health checks с учетом времени инициализации
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          # Даем время на инициализацию
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          # Проверяем готовность после инициализации
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        
+        # Startup probe для медленно стартующих приложений
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 2
+          timeoutSeconds: 3
+          # Даем до 30 секунд на старт (15 попыток * 2 сек)
+          failureThreshold: 15
+        
+        env:
+        - name: PORT
+          value: "8080"
+        - name: ENVIRONMENT
+          value: "production"
+        
+        # Настройки для graceful shutdown
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 10"]
