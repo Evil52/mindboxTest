@@ -1,0 +1,21 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: scale-down-night
+  namespace: web-app
+spec:
+  schedule: "0 23 * * *"  # Каждый день в 23:00
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: scaler
+          containers:
+          - name: scaler
+            image: bitnami/kubectl:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              kubectl patch hpa web-app-hpa -n web-app -p '{"spec":{"minReplicas":2}}'
+          restartPolicy: OnFailure

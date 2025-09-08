@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scaling-config
+  namespace: web-app
+data:
+  day-replicas: "4"    # Пиковая нагрузка днем
+  night-replicas: "2"  # Минимум ночью
